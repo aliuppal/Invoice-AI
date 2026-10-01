@@ -32,9 +32,24 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const CHIP = "rounded-pill px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.02em]";
 
+const FIELD_LABELS: Record<string, string> = {
+  vendor: "vendor name",
+  invoice_number: "invoice number",
+  invoice_date: "invoice date",
+  po_number: "PO number",
+  line_items: "line items",
+  total: "document total",
+};
+
+type ParseNotes = { missing: string[]; warnings: string[] };
+
 function OcrBadge({ ocr }: { ocr: OcrResult }) {
   if (ocr.status === "ok") {
-    return <span className={cn(CHIP, "bg-pale-green text-deep-green")}>OCR · {ocr.confidence}% confidence</span>;
+    return (
+      <span className={cn(CHIP, "bg-pale-green text-deep-green")}>
+        {ocr.method === "ocr" ? `OCR · ${ocr.confidence}% confidence` : "PDF text layer"}
+      </span>
+    );
   }
   return (
     <span title={ocr.reason} className={cn(CHIP, "bg-[#fff4f1] text-[#b4401f]")}>
@@ -51,6 +66,7 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
   const [ocr, setOcr] = useState<OcrResult | null>(null);
+  const [notes, setNotes] = useState<ParseNotes>({ missing: [], warnings: [] });
   const [generatedAt, setGeneratedAt] = useState("");
   const [format, setFormat] = useState<PayloadFormat>("json");
   const [syncing, setSyncing] = useState(false);
@@ -99,7 +115,9 @@ export default function ScanPage() {
       const res = await fetch("/api/scan-invoice", { method: "POST", body });
       await uploadBeat;
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json) throw new Error(json?.error ?? "The scan service didn't respond. Try again.");
+      if (!res.ok || !json) {
+        throw new Error(json?.error ?? `The scan service failed (HTTP ${res.status}). Try again.`);
+      }
       if (!isCurrent()) return;
 
       setStep(2);
@@ -109,6 +127,7 @@ export default function ScanPage() {
       const result = json as ScanResponse;
       setDraft(toDraft(result.data));
       setOcr(result.ocr);
+      setNotes({ missing: result.missing, warnings: result.warnings });
       setGeneratedAt(new Date().toISOString());
       setStage("review");
     } catch (err) {
@@ -206,14 +225,28 @@ export default function ScanPage() {
                     <span className="truncate">{file?.name}</span>
                   </span>
                   {ocr && <OcrBadge ocr={ocr} />}
-                  <span className={cn(CHIP, "border border-hairline text-body-muted")}>Parser · mock</span>
+                  <span className={cn(CHIP, "border border-hairline text-body-muted")}>Parser · rules</span>
                   {ocr && ocr.status !== "ok" && <span className="text-xs text-slate">{ocr.reason}</span>}
                 </div>
+
+                {(notes.missing.length > 0 || notes.warnings.length > 0) && (
+                  <div role="status" className="rounded-chip border border-coral-soft bg-[#fff4f1] px-5 py-4 text-sm text-ink">
+                    <p className="font-medium text-black">Check these before syncing</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-body-muted">
+                      {notes.missing.length > 0 && (
+                        <li>Not found in the document: {notes.missing.map((key) => FIELD_LABELS[key] ?? key).join(", ")}.</li>
+                      )}
+                      {notes.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {ocr?.status === "ok" && (
                   <details className="rounded-chip bg-stone">
                     <summary className="cursor-pointer px-5 py-3 font-mono text-xs uppercase tracking-[0.02em] text-body-muted hover:text-black">
-                      Raw OCR text
+                      {ocr.method === "ocr" ? "Raw OCR text" : "Extracted PDF text"}
                     </summary>
                     <pre className="max-h-60 overflow-auto whitespace-pre-wrap border-t border-hairline px-5 py-4 font-mono text-xs leading-relaxed text-ink">
                       {ocr.text.trim() || "(no text detected)"}

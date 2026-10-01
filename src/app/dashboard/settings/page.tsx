@@ -11,7 +11,7 @@ const SETTINGS = [
     group: "OCR",
     rows: [
       { label: "Engine", value: "Tesseract.js", hint: "Runs server-side in the scan API route." },
-      { label: "Language", value: "eng", hint: "Images only. PDFs skip OCR in the MVP." },
+      { label: "Language", value: "eng", hint: "Images are OCR'd. PDFs use their text layer; scanned PDFs aren't supported yet." },
       { label: "Max upload size", value: "10 MB", hint: "PNG, JPG, WEBP, BMP, GIF or PDF." },
     ],
   },

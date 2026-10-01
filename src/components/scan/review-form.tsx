@@ -58,7 +58,7 @@ export function ReviewForm({ draft, onChange }: Props) {
           <p className="mt-1 text-sm text-body-muted">Check every field before syncing. Edits update the payload live.</p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-pill border border-coral-soft bg-[#fff4f1] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.02em] text-[#b4401f]">
-          <Sparkles className="size-3" /> AI pre-filled
+          <Sparkles className="size-3" /> Auto-filled
         </span>
       </div>
 

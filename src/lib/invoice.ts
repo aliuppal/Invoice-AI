@@ -17,14 +17,19 @@ export type ExtractedInvoice = {
   tax: number;
 };
 
+// How the document's text was obtained: OCR for images, the embedded text layer for PDFs.
 export type OcrResult =
-  | { status: "ok"; confidence: number; text: string }
+  | { status: "ok"; method: "ocr"; confidence: number; text: string }
+  | { status: "ok"; method: "pdf"; text: string }
   | { status: "skipped" | "failed"; reason: string };
 
 export type ScanResponse = {
   data: ExtractedInvoice;
   ocr: OcrResult;
-  parser: "mock";
+  parser: "rules";
+  // Field keys the parser couldn't find, and cross-checks that didn't add up.
+  missing: string[];
+  warnings: string[];
 };
 
 // Form state keeps numbers as strings so half-typed values like "12." survive.
@@ -171,18 +176,3 @@ export function validateDraft(draft: InvoiceDraft): string | null {
   if (draft.line_items.some((item) => toNumber(item.quantity) <= 0)) return "Line item quantities must be above zero.";
   return null;
 }
-
-// What the (future) parser would pull out of a typical supplier invoice.
-export const MOCK_EXTRACTION: ExtractedInvoice = {
-  vendor: "Acme Corp",
-  invoice_number: "INV-2026-0418",
-  invoice_date: "2026-09-28",
-  po_number: "PO-9921",
-  currency: "USD",
-  line_items: [
-    { description: "Industrial sensor module (SKU AC-220)", quantity: 4, unit_price: 185.0 },
-    { description: "Mounting bracket, stainless steel", quantity: 10, unit_price: 32.5 },
-    { description: "On-site calibration service (hours)", quantity: 3, unit_price: 95.0 },
-  ],
-  tax: 129.5,
-};
