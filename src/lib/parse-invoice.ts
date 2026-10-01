@@ -9,6 +9,9 @@ export type ParseResult = {
   data: ExtractedInvoice;
   missing: ParsedField[];
   warnings: string[];
+  // Subtotal/total as printed on the document, kept so merged OCR passes can re-run the cross-checks.
+  printed: { subtotal: number | null; total: number | null };
+  notes: string[];
 };
 
 const CURRENCY = String.raw`(?:USD|EUR|GBP|PKR|AED|Rs\.?|[$€£₨])`;
@@ -132,11 +135,17 @@ function findPoNumber(text: string) {
 }
 
 function cleanVendor(line: string) {
-  return line
+  const name = line
+    .split(/\s{3,}/)[0] // OCR keeps column gaps; anything after a wide gap belongs to another column
     .replace(/[-–|:]*\s*\b(tax\s+)?invoice\b.*$/i, "")
     .replace(/\S+@\S+/g, "")
-    .replace(/[\s\-–|,:]+$/, "")
+    .replace(/^[^A-Za-z0-9]+|[\s\-–|,:]+$/g, "")
     .trim();
+  // Reject OCR crumbs like "F" or "a I", and reference numbers like "INV-3337".
+  if ((name.match(/[A-Za-z]/g)?.length ?? 0) < 3 || /^[A-Za-z]{1,5}[-\s#]?\d[\w-]*$/.test(name)) return "";
+  // ...and field labels picked up from a neighbouring column, like "Order Number".
+  if (/^(invoice|order|p\.?o\.?|purchase\s+order|due|issue|account|acc)\s*(number|no\.?|#|date)?$/i.test(name)) return "";
+  return name;
 }
 
 function findVendor(lines: string[]) {
@@ -209,8 +218,12 @@ function findLineItems(lines: string[]): ExtractedLineItem[] {
       else quantity = unitPrice > 0 && Number.isInteger(round2(amount / unitPrice)) ? round2(amount / unitPrice) : 1;
       if (quantity <= 0) quantity = 1;
 
-      // The line amount is the source of truth (it already reflects discounts/adjustments).
-      if (Math.abs(quantity * unitPrice - amount) > 0.01) unitPrice = round2(amount / quantity);
+      if (Math.abs(quantity * unitPrice - amount) > 0.01) {
+        // OCR often drops decimal points ("1.00" -> "100"). If price and amount agree, the quantity is what broke.
+        if (unitPrice > 0 && Number.isInteger(round2(amount / unitPrice))) quantity = round2(amount / unitPrice);
+        // Otherwise the line amount is the source of truth (it already reflects discounts/adjustments).
+        else unitPrice = round2(amount / quantity);
+      }
 
       const description = carried?.description || cleanDescription(line) || "Item";
       items.push({ description, quantity, unit_price: unitPrice });
@@ -245,7 +258,7 @@ export function parseInvoiceText(text: string): ParseResult {
 
   let line_items = findLineItems(lines);
   const itemsFound = line_items.length > 0;
-  const warnings: string[] = [];
+  const notes: string[] = [];
 
   if (tax === null) {
     const base = docSubtotal ?? (itemsFound ? sumItems(line_items) : null);
@@ -256,16 +269,8 @@ export function parseInvoiceText(text: string): ParseResult {
     const fallback = docSubtotal ?? (docTotal !== null ? round2(docTotal - tax) : null);
     if (fallback !== null && fallback > 0) {
       line_items = [{ description: "Invoice amount (line items not detected)", quantity: 1, unit_price: fallback }];
-      warnings.push("Line items weren't detected, so the subtotal was added as a single line. Split it if needed.");
+      notes.push("Line items weren't detected, so the subtotal was added as a single line. Split it if needed.");
     }
-  }
-
-  const itemsSum = sumItems(line_items);
-  if (docSubtotal !== null && Math.abs(itemsSum - docSubtotal) > 0.01) {
-    warnings.push(`Line items add up to ${itemsSum.toFixed(2)}, but the document's subtotal is ${docSubtotal.toFixed(2)}.`);
-  }
-  if (docTotal !== null && Math.abs(round2(itemsSum + tax) - docTotal) > 0.01) {
-    warnings.push(`Calculated total is ${round2(itemsSum + tax).toFixed(2)}, but the document says ${docTotal.toFixed(2)}.`);
   }
 
   const data: ExtractedInvoice = { vendor, invoice_number, invoice_date, po_number, currency, line_items, tax };
@@ -277,7 +282,67 @@ export function parseInvoiceText(text: string): ParseResult {
   if (!itemsFound) missing.push("line_items");
   if (docTotal === null) missing.push("total");
 
-  return { data, missing, warnings };
+  const printed = { subtotal: docSubtotal, total: docTotal };
+  const warnings = [...notes, ...totalChecks(data, nonNull([docSubtotal]), nonNull([docTotal]))];
+  return { data, missing, warnings, printed, notes };
+}
+
+function nonNull(values: (number | null)[]) {
+  return values.filter((v): v is number => v !== null);
+}
+
+// Compare our calculated totals with the printed ones. With several OCR readings of the
+// printed values, any one agreeing is enough (a single misread digit shouldn't raise an alarm).
+function totalChecks(data: ExtractedInvoice, printedSubtotals: number[], printedTotals: number[]) {
+  const warnings: string[] = [];
+  const itemsSum = sumItems(data.line_items);
+  const total = round2(itemsSum + data.tax);
+  const agrees = (values: number[], target: number) => values.some((v) => Math.abs(v - target) <= 0.01);
+  if (printedSubtotals.length && !agrees(printedSubtotals, itemsSum)) {
+    warnings.push(`Line items add up to ${itemsSum.toFixed(2)}, but the document's subtotal is ${printedSubtotals[0].toFixed(2)}.`);
+  }
+  if (printedTotals.length && !agrees(printedTotals, total)) {
+    warnings.push(`Calculated total is ${total.toFixed(2)}, but the document says ${printedTotals[0].toFixed(2)}.`);
+  }
+  return warnings;
+}
+
+const HEADER_FIELDS = ["vendor", "invoice_number", "invoice_date", "po_number"] as const;
+const FIELD_ORDER: ParsedField[] = ["vendor", "invoice_number", "invoice_date", "po_number", "line_items", "total"];
+
+function vote(values: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  let winner = "";
+  let top = 0;
+  for (const [value, count] of counts) {
+    // Ties go to the earliest pass, so callers order passes by header-field reliability.
+    if (count > top) [winner, top] = [value, count];
+  }
+  return winner;
+}
+
+// Combine parses of one document from several OCR passes: vote on header fields, and take
+// line items and tax from the pass whose numbers are most self-consistent.
+export function mergeParseResults(results: ParseResult[]): ParseResult {
+  if (results.length === 1) return results[0];
+  const badness = (r: ParseResult) =>
+    (r.missing.includes("line_items") ? 10 : 0) + (r.missing.includes("total") ? 1 : 0) + r.warnings.length;
+  const best = results.reduce((a, b) => (badness(b) < badness(a) ? b : a));
+
+  const data = { ...best.data, currency: vote(results.map((r) => r.data.currency)) || "USD" };
+  for (const field of HEADER_FIELDS) data[field] = vote(results.map((r) => r.data[field]));
+
+  const missing = FIELD_ORDER.filter((field) => {
+    if (field === "total") return results.every((r) => r.missing.includes("total"));
+    if (field === "line_items") return best.missing.includes(field);
+    return !data[field];
+  });
+
+  const subtotals = nonNull([best.printed.subtotal, ...results.map((r) => r.printed.subtotal)]);
+  const totals = nonNull([best.printed.total, ...results.map((r) => r.printed.total)]);
+  const warnings = [...best.notes, ...totalChecks(data, subtotals, totals)];
+  return { data, missing, warnings, printed: best.printed, notes: best.notes };
 }
 
 export function emptyParseResult(): ParseResult {
@@ -285,5 +350,7 @@ export function emptyParseResult(): ParseResult {
     data: { vendor: "", invoice_number: "", invoice_date: "", po_number: "", currency: "USD", line_items: [], tax: 0 },
     missing: ["vendor", "invoice_number", "invoice_date", "po_number", "line_items", "total"],
     warnings: [],
+    printed: { subtotal: null, total: null },
+    notes: [],
   };
 }

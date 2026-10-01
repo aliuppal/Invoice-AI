@@ -16,6 +16,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-dropzone": "^19.3.0",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.7.0",
     "tesseract.js": "^7.0.0",
     "unpdf": "^1.7.0"

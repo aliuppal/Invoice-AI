@@ -162,10 +162,26 @@ export function serializePayload(payload: SapPayload, format: PayloadFormat) {
   return format === "json" ? JSON.stringify(payload, null, 2) : payloadToXml(payload);
 }
 
+// ISO 8601 with the device's UTC offset (e.g. 2026-10-02T09:15:12+05:00), so the
+// timestamp in the file name matches the user's wall clock.
+export function localIsoTimestamp(date = new Date()) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  return (
+    `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}` +
+    `T${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}` +
+    `${sign}${p(Math.floor(Math.abs(offset) / 60))}:${p(Math.abs(offset) % 60)}`
+  );
+}
+
+// "<invoice number>_<YYYYMMDD-HHmmss>.<ext>", e.g. INV-3337_20261002-091512.json.
 export function payloadFileName(payload: SapPayload, format: PayloadFormat) {
-  const ref = (payload.header.po_number || payload.header.invoice_number || "UNREF").replace(/[^A-Za-z0-9-]/g, "");
-  const stamp = payload.meta.generated_at.replace(/[-:]/g, "").replace(/\..+$/, "");
-  return `INV_${ref}_${stamp}.${format}`;
+  const ref =
+    (payload.header.invoice_number || payload.header.po_number || "INVOICE").replace(/[^A-Za-z0-9-]/g, "") || "INVOICE";
+  // Read the date/time digits straight from the string so the name keeps the local time it was stamped with.
+  const stamp = payload.meta.generated_at.slice(0, 19).replace(/-/g, "").replace("T", "-").replace(/:/g, "");
+  return `${ref}_${stamp}.${format}`;
 }
 
 export function validateDraft(draft: InvoiceDraft): string | null {

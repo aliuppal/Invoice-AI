@@ -3,7 +3,7 @@ const SETTINGS = [
     group: "SAP connection",
     rows: [
       { label: "Inbound directory", value: "/sap/inbound/", hint: "Folder SAP reads through transaction AL11." },
-      { label: "Transport", value: "SFTP (simulated)", hint: "MVP does not write real files." },
+      { label: "Transport", value: "Download to device", hint: "Files are saved as <invoice no.>_<timestamp>; copy them into the AL11 directory." },
       { label: "Default payload format", value: "JSON", hint: "XML can be chosen per document on the Scan page." },
     ],
   },

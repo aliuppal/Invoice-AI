@@ -1,9 +1,8 @@
-import os from "node:os";
 import { NextResponse } from "next/server";
-import Tesseract from "tesseract.js";
 import { extractText, getDocumentProxy } from "unpdf";
 import type { OcrResult, ScanResponse } from "@/lib/invoice";
-import { emptyParseResult, parseInvoiceText } from "@/lib/parse-invoice";
+import { ocrInvoiceImage } from "@/lib/ocr";
+import { emptyParseResult, parseInvoiceText, type ParseResult } from "@/lib/parse-invoice";
 
 // First OCR run downloads ~10 MB of language data; give cold starts room.
 export const maxDuration = 60;
@@ -13,7 +12,7 @@ const MIN_PROCESSING_MS = 1500;
 const OCR_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/bmp", "image/gif"]);
 
 // Fail OCR well inside maxDuration so the client always gets a JSON response.
-const OCR_TIMEOUT_MS = 25_000;
+const OCR_TIMEOUT_MS = 45_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,23 +24,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function ocrImage(image: Buffer): Promise<OcrResult> {
-  let worker: Tesseract.Worker | undefined;
+async function scanImage(image: Buffer): Promise<{ ocr: OcrResult; parsed: ParseResult }> {
   try {
-    const run = async () => {
-      // Serverless filesystems are read-only outside the temp dir, so cache language data there.
-      worker = await Tesseract.createWorker("eng", Tesseract.OEM.LSTM_ONLY, { cachePath: os.tmpdir() });
-      return worker.recognize(image);
-    };
-    const {
-      data: { text, confidence },
-    } = await withTimeout(run(), OCR_TIMEOUT_MS);
-    return { status: "ok", method: "ocr", confidence: Math.round(confidence), text };
+    return await withTimeout(ocrInvoiceImage(image), OCR_TIMEOUT_MS);
   } catch (error) {
     console.error("[scan-invoice] Tesseract OCR failed", error);
-    return { status: "failed", reason: "OCR engine could not read this image." };
-  } finally {
-    await worker?.terminate().catch(() => {});
+    return { ocr: { status: "failed", reason: "OCR engine could not read this image." }, parsed: emptyParseResult() };
   }
 }
 
@@ -79,8 +67,15 @@ export async function POST(request: Request) {
 
   const startedAt = Date.now();
   const bytes = await file.arrayBuffer();
-  const ocr = file.type === "application/pdf" ? await pdfText(new Uint8Array(bytes)) : await ocrImage(Buffer.from(bytes));
-  const { data, missing, warnings } = ocr.status === "ok" ? parseInvoiceText(ocr.text) : emptyParseResult();
+  let ocr: OcrResult;
+  let parsed: ParseResult;
+  if (file.type === "application/pdf") {
+    ocr = await pdfText(new Uint8Array(bytes));
+    parsed = ocr.status === "ok" ? parseInvoiceText(ocr.text) : emptyParseResult();
+  } else {
+    ({ ocr, parsed } = await scanImage(Buffer.from(bytes)));
+  }
+  const { data, missing, warnings } = parsed;
 
   // Keep the response at >= 1.5s so the processing sequence reads as real work.
   await sleep(Math.max(0, MIN_PROCESSING_MS - (Date.now() - startedAt)));

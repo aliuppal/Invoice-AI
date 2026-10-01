@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { FileText, Loader2, RotateCcw, Send } from "lucide-react";
+import { Download, FileText, Loader2, RotateCcw } from "lucide-react";
 import { PayloadPreview } from "@/components/scan/payload-preview";
 import { ProcessingSteps } from "@/components/scan/processing-steps";
 import { ReviewForm } from "@/components/scan/review-form";
@@ -11,6 +11,9 @@ import { UploadZone } from "@/components/scan/upload-zone";
 import {
   SAP_INBOUND_DIR,
   buildPayload,
+  localIsoTimestamp,
+  payloadFileName,
+  serializePayload,
   toDraft,
   validateDraft,
   type InvoiceDraft,
@@ -29,6 +32,18 @@ const STAGES: { id: Stage; label: string }[] = [
 ];
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Trigger a browser download of generated text content.
+function saveFile(name: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const CHIP = "rounded-pill px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.02em]";
 
@@ -128,7 +143,7 @@ export default function ScanPage() {
       setDraft(toDraft(result.data));
       setOcr(result.ocr);
       setNotes({ missing: result.missing, warnings: result.warnings });
-      setGeneratedAt(new Date().toISOString());
+      setGeneratedAt(localIsoTimestamp());
       setStage("review");
     } catch (err) {
       if (!isCurrent()) return;
@@ -148,23 +163,31 @@ export default function ScanPage() {
   }
 
   async function handleSync() {
-    if (!payload || validationError) return;
+    if (!draft || validationError) return;
     setSyncing(true);
     try {
+      // Stamp the file at save time, so the name reflects when it was produced.
+      const stamp = localIsoTimestamp();
+      const finalPayload = buildPayload(draft, stamp);
+      setGeneratedAt(stamp);
+
       const res = await fetch("/api/sync-to-sap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, payload }),
+        body: JSON.stringify({ format, payload: finalPayload }),
       });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) throw new Error(json?.message ?? "SAP folder didn't accept the file.");
+      if (!res.ok || !json?.success) throw new Error(json?.message ?? "The payload didn't pass validation.");
+
+      const fileName = payloadFileName(finalPayload, format);
+      saveFile(fileName, serializePayload(finalPayload, format), format === "json" ? "application/json" : "application/xml");
       setToast({
         kind: "success",
-        title: `✅ Successfully synced to ${SAP_INBOUND_DIR}. AL11 directory updated.`,
-        detail: json.path,
+        title: `✅ Saved ${fileName} to your device.`,
+        detail: `Copy it into the AL11 inbound directory (${SAP_INBOUND_DIR}).`,
       });
     } catch (err) {
-      setToast({ kind: "error", title: "Sync failed", detail: err instanceof Error ? err.message : undefined });
+      setToast({ kind: "error", title: "Couldn't save the file", detail: err instanceof Error ? err.message : undefined });
     } finally {
       setSyncing(false);
     }
@@ -281,8 +304,8 @@ export default function ScanPage() {
                     disabled={syncing || Boolean(validationError)}
                     className="inline-flex items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {syncing ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" strokeWidth={1.75} />}
-                    {syncing ? "Syncing…" : "Sync to SAP Shared Folder"}
+                    {syncing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" strokeWidth={1.75} />}
+                    {syncing ? "Saving…" : "Save File for SAP AL11"}
                   </button>
                 </div>
               </div>

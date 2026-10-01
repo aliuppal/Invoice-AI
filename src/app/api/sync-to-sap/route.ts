@@ -32,13 +32,13 @@ export async function POST(request: Request) {
     );
   }
 
-  // MVP: no real write. A production version would push the serialised payload to the
-  // S3/SFTP share that SAP reads through transaction AL11.
+  // The browser saves the file to the user's device for copying into AL11. This route only
+  // validates; a production version would push the serialised payload to the S3/SFTP share SAP reads.
   await sleep(1000);
 
   return NextResponse.json({
     success: true,
-    message: "File written to shared S3/SFTP folder. SAP AL11 ready.",
+    message: "Payload is valid and ready for SAP AL11.",
     path: `${SAP_INBOUND_DIR}${payloadFileName(body.payload, format)}`,
   });
 }
