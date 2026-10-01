@@ -42,3 +42,6 @@ next-env.d.ts
 
 # tesseract.js language data cache
 *.traineddata
+
+.vercel
+.env*
