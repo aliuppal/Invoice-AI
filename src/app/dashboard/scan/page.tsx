@@ -1,0 +1,264 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { FileText, Loader2, RotateCcw, Send } from "lucide-react";
+import { PayloadPreview } from "@/components/scan/payload-preview";
+import { ProcessingSteps } from "@/components/scan/processing-steps";
+import { ReviewForm } from "@/components/scan/review-form";
+import { Toast, type ToastData } from "@/components/scan/toast";
+import { UploadZone } from "@/components/scan/upload-zone";
+import {
+  SAP_INBOUND_DIR,
+  buildPayload,
+  toDraft,
+  validateDraft,
+  type InvoiceDraft,
+  type OcrResult,
+  type PayloadFormat,
+  type ScanResponse,
+} from "@/lib/invoice";
+import { cn } from "@/lib/utils";
+
+type Stage = "upload" | "processing" | "review";
+
+const STAGES: { id: Stage; label: string }[] = [
+  { id: "upload", label: "Upload" },
+  { id: "processing", label: "Process" },
+  { id: "review", label: "Review & sync" },
+];
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const CHIP = "rounded-pill px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.02em]";
+
+function OcrBadge({ ocr }: { ocr: OcrResult }) {
+  if (ocr.status === "ok") {
+    return <span className={cn(CHIP, "bg-pale-green text-deep-green")}>OCR · {ocr.confidence}% confidence</span>;
+  }
+  return (
+    <span title={ocr.reason} className={cn(CHIP, "bg-[#fff4f1] text-[#b4401f]")}>
+      OCR {ocr.status}
+    </span>
+  );
+}
+
+export default function ScanPage() {
+  const [stage, setStage] = useState<Stage>("upload");
+  const [step, setStep] = useState(0);
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<InvoiceDraft | null>(null);
+  const [ocr, setOcr] = useState<OcrResult | null>(null);
+  const [generatedAt, setGeneratedAt] = useState("");
+  const [format, setFormat] = useState<PayloadFormat>("json");
+  const [syncing, setSyncing] = useState(false);
+  const [toast, setToast] = useState<ToastData | null>(null);
+
+  // Each scan gets an id so a stale response can't overwrite a newer scan or a reset.
+  const runId = useRef(0);
+  const previewRef = useRef<string | null>(null);
+
+  const payload = useMemo(() => (draft ? buildPayload(draft, generatedAt) : null), [draft, generatedAt]);
+  const validationError = draft ? validateDraft(draft) : null;
+
+  useEffect(
+    () => () => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  function replacePreview(next: File | null) {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = next?.type.startsWith("image/") ? URL.createObjectURL(next) : null;
+    setPreviewUrl(previewRef.current);
+  }
+
+  async function handleFile(next: File) {
+    const id = ++runId.current;
+    const isCurrent = () => id === runId.current;
+
+    setError(null);
+    setFile(next);
+    replacePreview(next);
+    setStep(0);
+    setStage("processing");
+
+    try {
+      const body = new FormData();
+      body.append("file", next);
+      const uploadBeat = wait(700).then(() => isCurrent() && setStep(1));
+      const res = await fetch("/api/scan-invoice", { method: "POST", body });
+      await uploadBeat;
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json) throw new Error(json?.error ?? "The scan service didn't respond. Try again.");
+      if (!isCurrent()) return;
+
+      setStep(2);
+      await wait(900);
+      if (!isCurrent()) return;
+
+      const result = json as ScanResponse;
+      setDraft(toDraft(result.data));
+      setOcr(result.ocr);
+      setGeneratedAt(new Date().toISOString());
+      setStage("review");
+    } catch (err) {
+      if (!isCurrent()) return;
+      setError(err instanceof Error ? err.message : "Scan failed. Try again.");
+      setStage("upload");
+    }
+  }
+
+  function reset() {
+    runId.current += 1;
+    replacePreview(null);
+    setFile(null);
+    setDraft(null);
+    setOcr(null);
+    setError(null);
+    setStage("upload");
+  }
+
+  async function handleSync() {
+    if (!payload || validationError) return;
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/sync-to-sap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ format, payload }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) throw new Error(json?.message ?? "SAP folder didn't accept the file.");
+      setToast({
+        kind: "success",
+        title: `✅ Successfully synced to ${SAP_INBOUND_DIR}. AL11 directory updated.`,
+        detail: json.path,
+      });
+    } catch (err) {
+      setToast({ kind: "error", title: "Sync failed", detail: err instanceof Error ? err.message : undefined });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const stageIndex = STAGES.findIndex((s) => s.id === stage);
+
+  return (
+    <MotionConfig reducedMotion="user">
+      <div className="space-y-10">
+        <header className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.02em] text-slate">Core workflow</p>
+            <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">
+              Scan & Sync
+            </h1>
+            <p className="mt-4 max-w-xl text-lg leading-snug text-body-muted">
+              Turn a paper invoice or PO into a structured file in the SAP inbound folder.
+            </p>
+          </div>
+          <ol className="flex flex-wrap gap-2" aria-label="Progress">
+            {STAGES.map((s, i) => (
+              <li
+                key={s.id}
+                aria-current={i === stageIndex ? "step" : undefined}
+                className={cn(
+                  "rounded-pill border px-3 py-1 font-mono text-[11px] uppercase tracking-[0.02em]",
+                  i === stageIndex && "border-primary bg-primary text-white",
+                  i < stageIndex && "border-hairline text-body-muted",
+                  i > stageIndex && "border-hairline text-muted",
+                )}
+              >
+                0{i + 1} {s.label}
+              </li>
+            ))}
+          </ol>
+        </header>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={stage}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            {stage === "upload" && <UploadZone error={error} onFile={handleFile} onError={setError} />}
+
+            {stage === "processing" && file && (
+              <ProcessingSteps fileName={file.name} previewUrl={previewUrl} step={step} />
+            )}
+
+            {stage === "review" && draft && payload && (
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-hairline py-4 text-sm">
+                  <span className="inline-flex min-w-0 items-center gap-2 text-ink">
+                    <FileText className="size-4 shrink-0 text-slate" strokeWidth={1.75} />
+                    <span className="truncate">{file?.name}</span>
+                  </span>
+                  {ocr && <OcrBadge ocr={ocr} />}
+                  <span className={cn(CHIP, "border border-hairline text-body-muted")}>Parser · mock</span>
+                  {ocr && ocr.status !== "ok" && <span className="text-xs text-slate">{ocr.reason}</span>}
+                </div>
+
+                {ocr?.status === "ok" && (
+                  <details className="rounded-chip bg-stone">
+                    <summary className="cursor-pointer px-5 py-3 font-mono text-xs uppercase tracking-[0.02em] text-body-muted hover:text-black">
+                      Raw OCR text
+                    </summary>
+                    <pre className="max-h-60 overflow-auto whitespace-pre-wrap border-t border-hairline px-5 py-4 font-mono text-xs leading-relaxed text-ink">
+                      {ocr.text.trim() || "(no text detected)"}
+                    </pre>
+                  </details>
+                )}
+
+                <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+                  <ReviewForm draft={draft} onChange={setDraft} />
+                  <div className="lg:sticky lg:top-24">
+                    <PayloadPreview payload={payload} format={format} onFormatChange={setFormat} />
+                  </div>
+                </div>
+
+                <div className="flex flex-col-reverse gap-3 border-t border-hairline pt-8 sm:flex-row sm:items-center sm:justify-end">
+                  {validationError && (
+                    <p role="alert" className="text-sm text-error sm:mr-auto">
+                      {validationError}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="inline-flex items-center justify-center gap-2 rounded-pill border border-primary bg-transparent px-6 py-3 text-sm font-medium text-primary transition-colors hover:bg-stone"
+                  >
+                    <RotateCcw className="size-4" strokeWidth={1.75} />
+                    Re-scan / Adjust
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSync}
+                    disabled={syncing || Boolean(validationError)}
+                    className="inline-flex items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {syncing ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" strokeWidth={1.75} />}
+                    {syncing ? "Syncing…" : "Sync to SAP Shared Folder"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
+    </MotionConfig>
+  );
+}

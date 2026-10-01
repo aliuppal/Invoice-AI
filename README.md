@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Invoq
 
-## Getting Started
+Scan a paper invoice or purchase order, extract its text with OCR, review the structured data, and sync it to an SAP inbound folder (read through transaction AL11).
 
-First, run the development server:
+This is an MVP: OCR is real (Tesseract.js, server-side), but field structuring and the SAP write are mocked.
+
+## Stack
+
+Next.js 16 (App Router, TypeScript) · Tailwind CSS v4 · Framer Motion · Lucide · react-dropzone · tesseract.js
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The first scan downloads Tesseract's English language data (~10 MB), so it needs internet access and takes a few extra seconds.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Routes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Route | What it does |
+| --- | --- |
+| `/dashboard` | Revenue, outstanding and SAP sync figures, recent invoices (mock data) |
+| `/dashboard/scan` | Upload or photograph a document → OCR → editable review with live JSON/XML payload → sync |
+| `/dashboard/invoices` | All invoices (mock data) |
+| `/dashboard/settings` | SAP and OCR configuration (read-only) |
+| `POST /api/scan-invoice` | `multipart/form-data` with `file`. Runs OCR on images (PDFs skip OCR), returns mock structured data plus the OCR result |
+| `POST /api/sync-to-sap` | JSON `{ format: "json" \| "xml", payload }`. Validates and simulates writing to `/sap/inbound/` |
 
-## Learn More
+## Next steps
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Replace `MOCK_EXTRACTION` in `src/app/api/scan-invoice/route.ts` with regex or LLM parsing of the OCR text.
+- Rasterise PDF pages so they can be OCR'd.
+- Write the payload to the real S3/SFTP share that SAP reads.
