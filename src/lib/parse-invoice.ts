@@ -287,6 +287,24 @@ export function parseInvoiceText(text: string): ParseResult {
   return { data, missing, warnings, printed, notes };
 }
 
+// Package fields extracted elsewhere (e.g. by a vision model) with the same missing-field
+// report and total cross-checks the text parser produces.
+export function finalizeExtraction(
+  data: ExtractedInvoice,
+  printed: { subtotal: number | null; total: number | null },
+  notes: string[],
+): ParseResult {
+  const missing: ParsedField[] = [];
+  if (!data.vendor) missing.push("vendor");
+  if (!data.invoice_number) missing.push("invoice_number");
+  if (!data.invoice_date) missing.push("invoice_date");
+  if (!data.po_number) missing.push("po_number");
+  if (data.line_items.length === 0) missing.push("line_items");
+  if (printed.total === null) missing.push("total");
+  const warnings = [...notes, ...totalChecks(data, nonNull([printed.subtotal]), nonNull([printed.total]))];
+  return { data, missing, warnings, printed, notes };
+}
+
 function nonNull(values: (number | null)[]) {
   return values.filter((v): v is number => v !== null);
 }

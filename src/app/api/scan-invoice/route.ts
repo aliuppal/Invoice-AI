@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { extractText, getDocumentProxy } from "unpdf";
+import { aiExtractInvoice, aiExtractionEnabled } from "@/lib/ai-extract";
 import type { OcrResult, ScanResponse } from "@/lib/invoice";
 import { ocrInvoiceImage } from "@/lib/ocr";
 import { emptyParseResult, parseInvoiceText, type ParseResult } from "@/lib/parse-invoice";
@@ -11,8 +12,10 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const MIN_PROCESSING_MS = 1500;
 const OCR_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/bmp", "image/gif"]);
 
-// Fail OCR well inside maxDuration so the client always gets a JSON response.
-const OCR_TIMEOUT_MS = 45_000;
+// Budgets inside maxDuration so the client always gets a JSON response: Claude first, and if
+// it fails or stalls there is still time for the Tesseract fallback.
+const AI_TIMEOUT_MS = 35_000;
+const OCR_TIMEOUT_MS = 20_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -31,6 +34,13 @@ async function scanImage(image: Buffer): Promise<{ ocr: OcrResult; parsed: Parse
     console.error("[scan-invoice] Tesseract OCR failed", error);
     return { ocr: { status: "failed", reason: "OCR engine could not read this image." }, parsed: emptyParseResult() };
   }
+}
+
+type Scan = { ocr: OcrResult; parsed: ParseResult; parser: ScanResponse["parser"] };
+
+async function scanWithClaude(file: Buffer, mimeType: string): Promise<Scan> {
+  const { parsed, transcript, model } = await withTimeout(aiExtractInvoice(file, mimeType), AI_TIMEOUT_MS);
+  return { ocr: { status: "ok", method: "ai", model, text: transcript }, parsed, parser: "ai" };
 }
 
 async function pdfText(data: Uint8Array): Promise<OcrResult> {
@@ -66,19 +76,42 @@ export async function POST(request: Request) {
   }
 
   const startedAt = Date.now();
-  const bytes = await file.arrayBuffer();
-  let ocr: OcrResult;
-  let parsed: ParseResult;
-  if (file.type === "application/pdf") {
-    ocr = await pdfText(new Uint8Array(bytes));
-    parsed = ocr.status === "ok" ? parseInvoiceText(ocr.text) : emptyParseResult();
-  } else {
-    ({ ocr, parsed } = await scanImage(Buffer.from(bytes)));
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const isPdf = file.type === "application/pdf";
+  let scan: Scan | null = null;
+
+  // PDFs with a text layer parse reliably and for free; only scanned PDFs need a vision model.
+  if (isPdf) {
+    const ocr = await pdfText(new Uint8Array(buffer));
+    if (ocr.status === "ok") scan = { ocr, parsed: parseInvoiceText(ocr.text), parser: "rules" };
+    else if (!aiExtractionEnabled()) scan = { ocr, parsed: emptyParseResult(), parser: "rules" };
   }
-  const { data, missing, warnings } = parsed;
+
+  let aiFailure: string | null = null;
+  if (!scan && aiExtractionEnabled()) {
+    try {
+      scan = await scanWithClaude(buffer, file.type);
+    } catch (error) {
+      console.error("[scan-invoice] Claude extraction failed", error);
+      aiFailure = "Claude couldn't read this document, so the built-in OCR was used instead.";
+    }
+  }
+
+  if (!scan) {
+    scan = isPdf
+      ? {
+          ocr: { status: "failed", reason: "This scanned PDF couldn't be read. Upload it as a PNG or JPG." },
+          parsed: emptyParseResult(),
+          parser: "rules",
+        }
+      : { ...(await scanImage(buffer)), parser: "rules" };
+  }
+
+  const { data, missing } = scan.parsed;
+  const warnings = aiFailure ? [aiFailure, ...scan.parsed.warnings] : scan.parsed.warnings;
 
   // Keep the response at >= 1.5s so the processing sequence reads as real work.
   await sleep(Math.max(0, MIN_PROCESSING_MS - (Date.now() - startedAt)));
 
-  return NextResponse.json<ScanResponse>({ data, ocr, parser: "rules", missing, warnings });
+  return NextResponse.json<ScanResponse>({ data, ocr: scan.ocr, parser: scan.parser, missing, warnings });
 }

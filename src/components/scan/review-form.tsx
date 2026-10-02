@@ -78,7 +78,8 @@ export function ReviewForm({ draft, onChange }: Props) {
             Currency
           </label>
           <select id={currencyId} className={INPUT} value={draft.currency} onChange={(e) => set("currency", e.target.value)}>
-            {CURRENCIES.map((code) => (
+            {/* Include an extracted code that isn't in the preset list, e.g. AUD. */}
+            {[...new Set([...CURRENCIES, draft.currency])].map((code) => (
               <option key={code}>{code}</option>
             ))}
           </select>
