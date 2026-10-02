@@ -26,6 +26,8 @@ Open http://localhost:3000. The first scan downloads Tesseract's English languag
 | `/dashboard/invoices` | All invoices (mock data) |
 | `/dashboard/settings` | SAP and OCR configuration (read-only) |
 | `POST /api/scan-invoice` | `multipart/form-data` with `file`. OCRs images or reads the PDF text layer, parses it, returns structured data plus missing fields and warnings |
+| `/dashboard/settings/cpi` | SAP CPI iFlow endpoint, username and password (stored in the browser). Password protected: `12345`, or set `CPI_SETTINGS_PASSWORD` |
+| `POST /api/push-to-cpi` | Relays the invoice JSON to the configured iFlow with Basic auth (optional CSRF token fetch); `mode: "test"` checks the connection without sending a message |
 | `POST /api/sync-to-sap` | JSON `{ format: "json" \| "xml", payload }`. Validates and simulates writing to `/sap/inbound/` |
 
 ## Next steps
