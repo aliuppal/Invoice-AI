@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Download, FileText, Loader2, RotateCcw } from "lucide-react";
+import { CloudUpload, Download, FileText, Loader2, RotateCcw } from "lucide-react";
+import { loadCpiConfig } from "@/lib/cpi-config";
 import { PayloadPreview } from "@/components/scan/payload-preview";
 import { ProcessingSteps } from "@/components/scan/processing-steps";
 import { ReviewForm } from "@/components/scan/review-form";
@@ -85,6 +86,7 @@ export default function ScanPage() {
   const [generatedAt, setGeneratedAt] = useState("");
   const [format, setFormat] = useState<PayloadFormat>("json");
   const [syncing, setSyncing] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
 
   // Each scan gets an id so a stale response can't overwrite a newer scan or a reset.
@@ -190,6 +192,53 @@ export default function ScanPage() {
       setToast({ kind: "error", title: "Couldn't save the file", detail: err instanceof Error ? err.message : undefined });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  // POST the invoice JSON to the SAP CPI iFlow configured under Settings → SAP CPI.
+  async function handlePushToCpi() {
+    if (!draft || validationError) return;
+    const config = loadCpiConfig();
+    if (!config) {
+      setToast({
+        kind: "error",
+        title: "SAP CPI isn't set up yet",
+        detail: "Add the iFlow endpoint, username and password under Settings → SAP CPI.",
+      });
+      return;
+    }
+
+    setPushing(true);
+    try {
+      const stamp = localIsoTimestamp();
+      const finalPayload = buildPayload(draft, stamp);
+      setGeneratedAt(stamp);
+
+      const res = await fetch("/api/push-to-cpi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "push",
+          endpoint: config.endpoint,
+          username: config.username,
+          password: config.password,
+          csrf: config.csrf,
+          format: "json",
+          fileName: payloadFileName(finalPayload, "json"),
+          content: serializePayload(finalPayload, "json"),
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.message ?? `The push failed (HTTP ${res.status}).`);
+      setToast({
+        kind: "success",
+        title: `✅ Pushed ${finalPayload.header.invoice_number || "invoice"} to SAP CPI (HTTP ${json.status}).`,
+        detail: json.messageId ? `Message ID ${json.messageId}` : json.message,
+      });
+    } catch (err) {
+      setToast({ kind: "error", title: "Couldn't push to SAP CPI", detail: err instanceof Error ? err.message : undefined });
+    } finally {
+      setPushing(false);
     }
   }
 
@@ -302,10 +351,19 @@ export default function ScanPage() {
                     type="button"
                     onClick={handleSync}
                     disabled={syncing || Boolean(validationError)}
-                    className="inline-flex items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex items-center justify-center gap-2 rounded-pill border border-primary bg-transparent px-6 py-3 text-sm font-medium text-primary transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {syncing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" strokeWidth={1.75} />}
                     {syncing ? "Saving…" : "Save File for SAP AL11"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePushToCpi}
+                    disabled={pushing || Boolean(validationError)}
+                    className="inline-flex items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {pushing ? <Loader2 className="size-4 animate-spin" /> : <CloudUpload className="size-4" strokeWidth={1.75} />}
+                    {pushing ? "Pushing…" : "Push to SAP CPI"}
                   </button>
                 </div>
               </div>

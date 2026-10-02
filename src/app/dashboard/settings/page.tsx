@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { Lock } from "lucide-react";
+
 const SETTINGS = [
   {
     group: "SAP connection",
@@ -21,9 +24,26 @@ export default function SettingsPage() {
   return (
     <div className="space-y-12">
       <header>
-        <p className="font-mono text-xs uppercase tracking-[0.02em] text-slate">Read-only in MVP</p>
+        <p className="font-mono text-xs uppercase tracking-[0.02em] text-slate">Workspace configuration</p>
         <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">Settings</h1>
       </header>
+
+      <section className="flex flex-col gap-5 rounded-media bg-deep-green p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.02em] text-coral-soft">Integration</p>
+          <h2 className="mt-2 font-display text-[28px] leading-tight tracking-[-0.02em]">SAP CPI iFlow</h2>
+          <p className="mt-1 max-w-lg text-sm text-white/75">
+            Endpoint and Basic-auth credentials used by the Push to SAP CPI button. Password protected.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/settings/cpi"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-pill bg-white px-6 py-3 text-sm font-medium text-primary transition-colors hover:bg-stone"
+        >
+          <Lock className="size-4" strokeWidth={1.75} />
+          Configure SAP CPI
+        </Link>
+      </section>
 
       {SETTINGS.map(({ group, rows }) => (
         <section key={group}>
