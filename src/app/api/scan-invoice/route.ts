@@ -15,7 +15,9 @@ const OCR_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/bmp",
 // Budgets inside maxDuration so the client always gets a JSON response: Claude first, and if
 // it fails or stalls there is still time for the Tesseract fallback.
 const AI_TIMEOUT_MS = 35_000;
-const OCR_TIMEOUT_MS = 20_000;
+// OCR gets whatever is left of this, but never less than the minimum.
+const TOTAL_BUDGET_MS = 55_000;
+const MIN_OCR_TIMEOUT_MS = 15_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,9 +29,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function scanImage(image: Buffer): Promise<{ ocr: OcrResult; parsed: ParseResult }> {
+async function scanImage(image: Buffer, timeoutMs: number): Promise<{ ocr: OcrResult; parsed: ParseResult }> {
   try {
-    return await withTimeout(ocrInvoiceImage(image), OCR_TIMEOUT_MS);
+    return await withTimeout(ocrInvoiceImage(image), timeoutMs);
   } catch (error) {
     console.error("[scan-invoice] Tesseract OCR failed", error);
     return { ocr: { status: "failed", reason: "OCR engine could not read this image." }, parsed: emptyParseResult() };
@@ -104,7 +106,10 @@ export async function POST(request: Request) {
           parsed: emptyParseResult(),
           parser: "rules",
         }
-      : { ...(await scanImage(buffer)), parser: "rules" };
+      : {
+          ...(await scanImage(buffer, Math.max(MIN_OCR_TIMEOUT_MS, TOTAL_BUDGET_MS - (Date.now() - startedAt)))),
+          parser: "rules",
+        };
   }
 
   const { data, missing } = scan.parsed;
