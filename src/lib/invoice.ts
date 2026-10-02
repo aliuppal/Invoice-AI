@@ -21,13 +21,12 @@ export type ExtractedInvoice = {
 export type OcrResult =
   | { status: "ok"; method: "ocr"; confidence: number; text: string }
   | { status: "ok"; method: "pdf"; text: string }
-  | { status: "ok"; method: "ai"; model: string; text: string }
   | { status: "skipped" | "failed"; reason: string };
 
 export type ScanResponse = {
   data: ExtractedInvoice;
   ocr: OcrResult;
-  parser: "rules" | "ai";
+  parser: "rules";
   // Field keys the parser couldn't find, and cross-checks that didn't add up.
   missing: string[];
   warnings: string[];

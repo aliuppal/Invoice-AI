@@ -62,7 +62,7 @@ function OcrBadge({ ocr }: { ocr: OcrResult }) {
   if (ocr.status === "ok") {
     return (
       <span className={cn(CHIP, "bg-pale-green text-deep-green")}>
-        {ocr.method === "ocr" ? `OCR · ${ocr.confidence}% confidence` : ocr.method === "ai" ? "Read by Claude" : "PDF text layer"}
+        {ocr.method === "ocr" ? `OCR · ${ocr.confidence}% confidence` : "PDF text layer"}
       </span>
     );
   }
@@ -82,7 +82,6 @@ export default function ScanPage() {
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
   const [ocr, setOcr] = useState<OcrResult | null>(null);
   const [notes, setNotes] = useState<ParseNotes>({ missing: [], warnings: [] });
-  const [parser, setParser] = useState<ScanResponse["parser"]>("rules");
   const [generatedAt, setGeneratedAt] = useState("");
   const [format, setFormat] = useState<PayloadFormat>("json");
   const [syncing, setSyncing] = useState(false);
@@ -144,7 +143,6 @@ export default function ScanPage() {
       setDraft(toDraft(result.data));
       setOcr(result.ocr);
       setNotes({ missing: result.missing, warnings: result.warnings });
-      setParser(result.parser);
       setGeneratedAt(localIsoTimestamp());
       setStage("review");
     } catch (err) {
@@ -250,9 +248,7 @@ export default function ScanPage() {
                     <span className="truncate">{file?.name}</span>
                   </span>
                   {ocr && <OcrBadge ocr={ocr} />}
-                  <span className={cn(CHIP, "border border-hairline text-body-muted")}>
-                    Parser · {parser === "ai" ? "Claude" : "rules"}
-                  </span>
+                  <span className={cn(CHIP, "border border-hairline text-body-muted")}>Parser · rules</span>
                   {ocr && ocr.status !== "ok" && <span className="text-xs text-slate">{ocr.reason}</span>}
                 </div>
 
@@ -273,7 +269,7 @@ export default function ScanPage() {
                 {ocr?.status === "ok" && (
                   <details className="rounded-chip bg-stone">
                     <summary className="cursor-pointer px-5 py-3 font-mono text-xs uppercase tracking-[0.02em] text-body-muted hover:text-black">
-                      {ocr.method === "ocr" ? "Raw OCR text" : ocr.method === "ai" ? "Claude transcript" : "Extracted PDF text"}
+                      {ocr.method === "ocr" ? "Raw OCR text" : "Extracted PDF text"}
                     </summary>
                     <pre className="max-h-60 overflow-auto whitespace-pre-wrap border-t border-hairline px-5 py-4 font-mono text-xs leading-relaxed text-ink">
                       {ocr.text.trim() || "(no text detected)"}
