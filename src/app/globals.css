@@ -33,6 +33,12 @@
   --font-mono: var(--font-jetbrains-mono);
 }
 
+/* Named breakpoint (between xl and 2xl) so Tailwind orders it with the built-in ones;
+   an arbitrary min-[1400px] variant was emitted before md: and lost to it. */
+@theme {
+  --breakpoint-wide: 87.5rem; /* 1400px: dashboard KPI cards fit on one row */
+}
+
 html {
   color-scheme: light;
 }
