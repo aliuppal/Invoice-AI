@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { AlertTriangle, Loader2, RotateCw, ScanLine } from "lucide-react";
+import { AlertTriangle, Loader2, RotateCw, ScanLine, Sparkles } from "lucide-react";
 import { AgingBar, type AgingSlice } from "@/components/dashboard/aging-bar";
 import { EMPTY_FILTERS, InvoiceTable, type InvoiceFilters } from "@/components/dashboard/invoice-table";
 import { RevenueSparkline } from "@/components/dashboard/revenue-sparkline";
@@ -18,7 +18,7 @@ import {
   retrySapSync,
   type SapInvoice,
 } from "@/lib/sap-invoices";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, formatMoneyCompact } from "@/lib/utils";
 
 const LABEL = "font-mono text-xs uppercase tracking-[0.02em]";
 
@@ -41,7 +41,10 @@ export function DashboardView() {
   // Outstanding + aging
   const unpaid = invoices.filter((i) => i.Status !== "Paid");
   const outstanding = unpaid.reduce((sum, i) => sum + i.Amount, 0);
-  const overdueCount = invoices.filter(isOverdue).length;
+  const overdue = invoices.filter(isOverdue);
+  const overdueCount = overdue.length;
+  const overdueAmount = overdue.reduce((sum, i) => sum + i.Amount, 0);
+  const overdueShare = outstanding > 0 ? overdueAmount / outstanding : 0;
   const slices: AgingSlice[] = AGING_BUCKETS.map((b) => {
     const inBucket = unpaid.filter((i) => agingBucket(i) === b.id);
     return { ...b, amount: inBucket.reduce((sum, i) => sum + i.Amount, 0), count: inBucket.length };
@@ -49,6 +52,9 @@ export function DashboardView() {
 
   // SAP sync
   const failed = invoices.filter((i) => i.SAPSyncStatus === "Failed");
+  // Master-data errors don't clear on retry; they're flagged "Fix in SAP" instead.
+  const retryable = failed.filter((i) => i.SyncError?.retryable !== false);
+  const needsFixInSap = failed.length - retryable.length;
   const firstPassRate = (SYNC_PERIOD.attempted - SYNC_PERIOD.firstPassFailures) / SYNC_PERIOD.attempted;
   const firstPassFailRate = SYNC_PERIOD.firstPassFailures / SYNC_PERIOD.attempted;
   const docTypes = [...new Set(invoices.map((i) => i.SAPDocumentType))].sort().reverse();
@@ -87,19 +93,38 @@ export function DashboardView() {
 
   return (
     <div className="space-y-14">
-      <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className={`${LABEL} text-slate`}>Accounts payable · Oct 2026</p>
-          <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">Dashboard</h1>
+      <header>
+        <p className={`${LABEL} text-slate`}>Accounts payable · Oct 2026 · PKR</p>
+        <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">Dashboard</h1>
+      </header>
+
+      {/* AI OCR extraction: the way invoices get into this workspace. */}
+      <section
+        aria-labelledby="ai-ocr-heading"
+        className="flex flex-col gap-5 rounded-media border border-hairline bg-white p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7"
+      >
+        <div className="flex items-start gap-4">
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#fff4f1] text-[#b4401f]">
+            <Sparkles className="size-5" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div>
+            <h2 id="ai-ocr-heading" className="font-display text-2xl tracking-[-0.02em] text-black">
+              AI OCR Extraction
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-body-muted">
+              Upload a PDF or photograph a paper invoice. Invoq reads the vendor, invoice and PO numbers, dates, line
+              items and tax, checks the totals, and prepares the file for SAP.
+            </p>
+          </div>
         </div>
         <Link
           href="/dashboard/scan"
-          className="inline-flex items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black"
         >
           <ScanLine className="size-4" strokeWidth={1.75} />
           Scan invoice
         </Link>
-      </header>
+      </section>
 
       {/* Four across only when each stone card is wide enough for the aging legend; otherwise revenue
           takes a full row and the other two share the next. */}
@@ -141,7 +166,16 @@ export function DashboardView() {
               {overdueCount} overdue
             </button>
           </p>
-          <div className="mt-5">
+          <p className="mt-4 text-sm text-body-muted">
+            <span className="font-display text-2xl tracking-[-0.02em] text-[#a63c1a]">
+              {Math.round(overdueShare * 100)}%
+            </span>{" "}
+            of outstanding is overdue
+            <span className="block font-mono text-xs text-ink">
+              {formatMoneyCompact(overdueAmount)} of {formatMoneyCompact(outstanding)}
+            </span>
+          </p>
+          <div className="mt-4">
             <AgingBar slices={slices} active={filters.bucket} onSelect={(bucket) => showInTable({ bucket })} />
           </div>
         </article>
@@ -188,8 +222,8 @@ export function DashboardView() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => retry(failed.map((f) => f.InvoiceID))}
-                  disabled={retrying.size > 0}
+                  onClick={() => retry(retryable.map((f) => f.InvoiceID))}
+                  disabled={retrying.size > 0 || retryable.length === 0}
                   className="inline-flex items-center gap-1.5 rounded-pill bg-primary px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
                 >
                   {retrying.size > 0 ? (
@@ -202,6 +236,12 @@ export function DashboardView() {
               </div>
             ) : (
               <p className="text-sm text-deep-green">All invoices are synced.</p>
+            )}
+            {needsFixInSap > 0 && (
+              <p className="mt-2 text-xs text-[#b4401f]">
+                {needsFixInSap} need{needsFixInSap === 1 ? "s" : ""} fixing in SAP first; retry won&apos;t clear{" "}
+                {needsFixInSap === 1 ? "it" : "them"}.
+              </p>
             )}
             <p className="mt-2 text-xs text-slate">
               {SYNC_PERIOD.firstPassFailures} first-pass failures this period ({(firstPassFailRate * 100).toFixed(1)}%).

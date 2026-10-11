@@ -61,7 +61,7 @@ export type SapPayload = {
   meta: { source: "invoq"; target_dir: "/sap/inbound/"; generated_at: string };
 };
 
-export const CURRENCIES = ["USD", "EUR", "GBP", "PKR", "AED"] as const;
+export const CURRENCIES = ["PKR", "USD", "EUR", "GBP", "AED"] as const;
 
 export const SAP_INBOUND_DIR = "/sap/inbound/";
 

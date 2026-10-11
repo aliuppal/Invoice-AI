@@ -175,7 +175,8 @@ function findCurrency(text: string) {
   if (text.includes("€")) return "EUR";
   if (text.includes("£")) return "GBP";
   if (/\bRs\.?\s?\d|₨/.test(text)) return "PKR";
-  return "USD";
+  // No currency marker printed: assume the workspace currency.
+  return "PKR";
 }
 
 function cleanDescription(line: string) {
@@ -347,7 +348,7 @@ export function mergeParseResults(results: ParseResult[]): ParseResult {
 
 export function emptyParseResult(): ParseResult {
   return {
-    data: { vendor: "", invoice_number: "", invoice_date: "", po_number: "", currency: "USD", line_items: [], tax: 0 },
+    data: { vendor: "", invoice_number: "", invoice_date: "", po_number: "", currency: "PKR", line_items: [], tax: 0 },
     missing: ["vendor", "invoice_number", "invoice_date", "po_number", "line_items", "total"],
     warnings: [],
     printed: { subtotal: null, total: null },

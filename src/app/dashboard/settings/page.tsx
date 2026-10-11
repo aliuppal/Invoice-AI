@@ -11,9 +11,14 @@ const SETTINGS = [
     ],
   },
   {
-    group: "OCR",
+    group: "AI OCR extraction",
     rows: [
-      { label: "Engine", value: "Tesseract.js", hint: "Runs server-side in the scan API route." },
+      {
+        label: "Engine",
+        value: "Tesseract.js (LSTM neural network)",
+        hint: "Runs server-side; a rule-based parser then maps the text to invoice fields and checks the totals.",
+      },
+      { label: "Workspace currency", value: "PKR", hint: "Used when an invoice doesn't print its currency." },
       { label: "Language", value: "eng", hint: "Images are OCR'd. PDFs use their text layer; scanned PDFs aren't supported yet." },
       { label: "Max upload size", value: "10 MB", hint: "PNG, JPG, WEBP, BMP, GIF or PDF." },
     ],

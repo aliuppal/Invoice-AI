@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export const PROCESSING_STEPS = [
   "Uploading document...",
-  "Running Tesseract OCR...",
+  "Running AI OCR extraction...",
   "Structuring data for SAP AL11...",
 ] as const;
 

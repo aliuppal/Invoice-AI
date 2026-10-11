@@ -82,6 +82,11 @@ function SyncCell({ invoice, retrying, onRetry }: { invoice: SapInvoice; retryin
       >
         <AlertTriangle className="size-3" aria-hidden /> Sync failed
       </Tooltip>
+      {error && !error.retryable ? (
+        <span className="rounded-pill bg-coral px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.02em] text-primary">
+          Fix in SAP
+        </span>
+      ) : (
       <button
         type="button"
         onClick={onRetry}
@@ -92,6 +97,7 @@ function SyncCell({ invoice, retrying, onRetry }: { invoice: SapInvoice; retryin
         {retrying ? "Retrying" : "Retry"}
         <span className="sr-only"> sync for {invoice.InvoiceID}</span>
       </button>
+      )}
     </span>
   );
 }

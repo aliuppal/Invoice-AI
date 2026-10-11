@@ -63,7 +63,7 @@ function OcrBadge({ ocr }: { ocr: OcrResult }) {
   if (ocr.status === "ok") {
     return (
       <span className={cn(CHIP, "bg-pale-green text-deep-green")}>
-        {ocr.method === "ocr" ? `OCR · ${ocr.confidence}% confidence` : "PDF text layer"}
+        {ocr.method === "ocr" ? `AI OCR · ${ocr.confidence}% confidence` : "PDF text layer"}
       </span>
     );
   }
@@ -254,7 +254,7 @@ export default function ScanPage() {
               Scan & Sync
             </h1>
             <p className="mt-4 max-w-xl text-lg leading-snug text-body-muted">
-              Turn a paper invoice or PO into a structured file in the SAP inbound folder.
+              AI OCR extraction turns a paper invoice or PO into a structured file for SAP.
             </p>
           </div>
           <ol className="flex flex-wrap gap-2" aria-label="Progress">
