@@ -93,38 +93,39 @@ export function DashboardView() {
 
   return (
     <div className="space-y-14">
-      <header>
-        <p className={`${LABEL} text-slate`}>Accounts payable · Oct 2026 · PKR</p>
-        <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">Dashboard</h1>
-      </header>
-
-      {/* AI OCR extraction: the way invoices get into this workspace. */}
-      <section
-        aria-labelledby="ai-ocr-heading"
-        className="flex flex-col gap-5 rounded-media border border-hairline bg-white p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7"
-      >
-        <div className="flex items-start gap-4">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#fff4f1] text-[#b4401f]">
-            <Sparkles className="size-5" strokeWidth={1.75} aria-hidden />
-          </span>
-          <div>
-            <h2 id="ai-ocr-heading" className="font-display text-2xl tracking-[-0.02em] text-black">
-              AI OCR Extraction
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-body-muted">
-              Upload a PDF or photograph a paper invoice. Invoq reads the vendor, invoice and PO numbers, dates, line
-              items and tax, checks the totals, and prepares the file for SAP.
-            </p>
-          </div>
+      <header className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className={`${LABEL} text-slate`}>Accounts payable · Oct 2026 · PKR</p>
+          <h1 className="mt-3 font-display text-5xl leading-none tracking-[-0.03em] text-black sm:text-6xl">Dashboard</h1>
         </div>
-        <Link
-          href="/dashboard/scan"
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-pill bg-primary px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black"
+
+        {/* AI OCR extraction: the way invoices get into this workspace. */}
+        <section
+          aria-labelledby="ai-ocr-heading"
+          className="flex flex-col gap-4 rounded-media border border-hairline bg-white p-5 sm:flex-row sm:items-center lg:max-w-xl"
         >
-          <ScanLine className="size-4" strokeWidth={1.75} />
-          Scan invoice
-        </Link>
-      </section>
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[#fff4f1] text-[#b4401f]">
+              <Sparkles className="size-5" strokeWidth={1.75} aria-hidden />
+            </span>
+            <div>
+              <h2 id="ai-ocr-heading" className="font-display text-xl tracking-[-0.02em] text-black">
+                AI OCR Extraction
+              </h2>
+              <p className="mt-0.5 text-sm leading-snug text-body-muted">
+                Upload a PDF or photo; Invoq reads the vendor, numbers, dates, line items and tax for SAP.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/dashboard/scan"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-pill bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black"
+          >
+            <ScanLine className="size-4" strokeWidth={1.75} />
+            Scan invoice
+          </Link>
+        </section>
+      </header>
 
       {/* Four across only when each stone card is wide enough for the aging legend; otherwise revenue
           takes a full row and the other two share the next. */}
